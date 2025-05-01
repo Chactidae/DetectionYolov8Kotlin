@@ -5,7 +5,10 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
+import android.widget.Button
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.AspectRatio
@@ -14,23 +17,38 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.snackbar.Snackbar
+import com.google.gson.Gson
 import com.surendramaran.yolov8tflite.Constants.LABELS_PATH
 import com.surendramaran.yolov8tflite.Constants.MODEL_PATH
 import com.surendramaran.yolov8tflite.databinding.ActivityMainBinding
+import retrofit2.Callback
+import okhttp3.MediaType
+import okhttp3.RequestBody
+import okhttp3.ResponseBody
+import retrofit2.Call
+import retrofit2.Response
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(), Detector.DetectorListener {
     private lateinit var binding: ActivityMainBinding
     private val isFrontCamera = false
-
+    private lateinit var captureButton: Button
     private var preview: Preview? = null
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var detector: Detector? = null
+    private var previewView: PreviewView? = null
+    private var lastProcessedBitmap: Bitmap? = null
+    private var lastDetectionResults: List<BoundingBox> = emptyList()
+    private var nameRec: String? = null
+    private var overlayView: OverlayView? = null
 
     private lateinit var cameraExecutor: ExecutorService
 
@@ -38,6 +56,8 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        previewView = findViewById(R.id.view_finder)
+        captureButton = findViewById(R.id.captureButton)
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -53,6 +73,20 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
         }
 
         bindListeners()
+
+        // Слушатель для кнопки
+        captureButton.setOnClickListener {
+            lastProcessedBitmap?.let { bitmap ->
+                if (lastDetectionResults.isNotEmpty()) {
+                    sendDetectionResults(bitmap, lastDetectionResults)
+                } else {
+                    Toast.makeText(this, "Нет обнаруженных объектов", Toast.LENGTH_SHORT).show()
+                }
+            } ?: run {
+                Toast.makeText(this, "Изображение не готово", Toast.LENGTH_SHORT).show()
+            }
+        }
+
     }
 
     private fun bindListeners() {
@@ -127,6 +161,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
                 bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height,
                 matrix, true
             )
+            lastProcessedBitmap = rotatedBitmap
 
             detector?.detect(rotatedBitmap)
         }
@@ -186,6 +221,9 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
     }
 
     override fun onDetect(boundingBoxes: List<BoundingBox>, inferenceTime: Long) {
+        lastDetectionResults = boundingBoxes
+        val names = boundingBoxes.joinToString(", ") { it.clsName }
+        nameRec = names
         runOnUiThread {
             binding.inferenceTime.text = "${inferenceTime}ms"
             binding.overlay.apply {
@@ -194,4 +232,66 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
             }
         }
     }
+
+    private fun sendDetectionResults(bitmap: Bitmap, boundingBoxes: List<BoundingBox>) {
+        // Реализация отправки через Retrofit
+//        val byteArrayOutputStream = ByteArrayOutputStream()
+//        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
+//        val imageBytes = byteArrayOutputStream.toByteArray()
+//        val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+        lastProcessedBitmap?.let { originalBitmap ->
+            // Создаем изображение с bounding boxes
+
+            val bitmapWithBoxes = binding.overlay.drawBoxesOnBitmap(bitmap)
+
+            // Конвертируем в base64
+            val byteArrayOutputStream = ByteArrayOutputStream()
+            bitmapWithBoxes.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream)
+            val base64Image =
+                Base64.encodeToString(byteArrayOutputStream.toByteArray(), Base64.NO_WRAP)
+
+            val request = Plant(
+                "Unknown",
+                base64Image,
+                0.95
+            )
+
+            val gson = Gson()
+            val requestJson = gson.toJson(request)
+            val body =
+                RequestBody.create(MediaType.parse("application/json; charset=utf-8"), requestJson)
+
+            val retrofitService = RetrofitService()
+            val plantApi = retrofitService.retrofit.create(PlantApi::class.java)
+            val call = plantApi.uploadPlant(body)
+
+            plantApi.uploadPlant(body).enqueue(object : Callback<ResponseBody> {
+                override fun onResponse(
+                    call: Call<ResponseBody>,
+                    response: Response<ResponseBody>
+                ) {
+                    Log.d("API_SUCCESS", response.code().toString())
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (response.isSuccessful) "Успешно!" else "Ошибка: ${response.code()}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                    Log.e("API_ERROR", "Network error", t)
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Ошибка сети: ${t.localizedMessage}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            })
+        }
+    }
+
 }

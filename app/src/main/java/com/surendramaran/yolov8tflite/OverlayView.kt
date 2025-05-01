@@ -2,6 +2,7 @@ package com.surendramaran.yolov8tflite
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -76,6 +77,40 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             canvas.drawText(drawableText, left, top + bounds.height(), textPaint)
 
         }
+
+    }
+    fun drawBoxesOnBitmap(bitmap: Bitmap): Bitmap {
+        // Создаем mutable копию исходного bitmap
+        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(mutableBitmap)
+
+        // Масштабируем координаты bounding boxes под размер изображения
+        val scaleX = bitmap.width.toFloat() / width
+        val scaleY = bitmap.height.toFloat() / height
+
+        results.forEach { box ->
+            val left = box.x1 * bitmap.width
+            val top = box.y1 * bitmap.height
+            val right = box.x2 * bitmap.width
+            val bottom = box.y2 * bitmap.height
+
+            // Рисуем bounding box
+            canvas.drawRect(left, top, right, bottom, boxPaint)
+
+            // Рисуем текст с классом
+            val drawableText = box.clsName
+            textBackgroundPaint.getTextBounds(drawableText, 0, drawableText.length, bounds)
+            canvas.drawRect(
+                left,
+                top,
+                left + bounds.width() + BOUNDING_RECT_TEXT_PADDING,
+                top + bounds.height() + BOUNDING_RECT_TEXT_PADDING,
+                textBackgroundPaint
+            )
+            canvas.drawText(drawableText, left, top + bounds.height(), textPaint)
+        }
+
+        return mutableBitmap
     }
 
     fun setResults(boundingBoxes: List<BoundingBox>) {

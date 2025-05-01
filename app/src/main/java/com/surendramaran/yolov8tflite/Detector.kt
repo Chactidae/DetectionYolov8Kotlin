@@ -214,6 +214,7 @@ class Detector(
     }
 
     interface DetectorListener {
+
         fun onEmptyDetect()
         fun onDetect(boundingBoxes: List<BoundingBox>, inferenceTime: Long)
     }
