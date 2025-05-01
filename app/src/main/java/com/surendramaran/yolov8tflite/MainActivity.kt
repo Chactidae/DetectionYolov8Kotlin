@@ -234,11 +234,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
     }
 
     private fun sendDetectionResults(bitmap: Bitmap, boundingBoxes: List<BoundingBox>) {
-        // Реализация отправки через Retrofit
-//        val byteArrayOutputStream = ByteArrayOutputStream()
-//        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
-//        val imageBytes = byteArrayOutputStream.toByteArray()
-//        val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+
         lastProcessedBitmap?.let { originalBitmap ->
             // Создаем изображение с bounding boxes
 
